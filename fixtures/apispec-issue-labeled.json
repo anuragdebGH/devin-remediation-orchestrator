@@ -1,0 +1,13 @@
+{
+  "action": "labeled",
+  "label": {"name": "devin-remediate"},
+  "repository": {"full_name": "anuragdebGH/superset"},
+  "issue": {
+    "number": 1,
+    "html_url": "https://github.com/anuragdebGH/superset/issues/1",
+    "title": "Remove the apispec <6.7.0 dependency ceiling",
+    "body": "Superset currently pins apispec below 6.7.0 because that release broke a unit test. Reproduce the failure on the latest compatible apispec release, update the affected OpenAPI schema code or test without weakening assertions, regenerate requirement locks, and run the targeted API/OpenAPI tests. Acceptance criteria: the upper bound is removed or advanced with a documented compatibility rationale; regression coverage passes; unrelated dependencies are unchanged.",
+    "author_association": "OWNER"
+  },
+  "sender": {"login": "anuragdebGH", "type": "User"}
+}

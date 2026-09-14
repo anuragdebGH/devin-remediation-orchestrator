@@ -1,0 +1,13 @@
+services:
+  orchestrator:
+    build: .
+    ports:
+      - "8080:8080"
+    env_file:
+      - ${ENV_FILE:-.env}
+    volumes:
+      - orchestrator-data:/data
+    restart: unless-stopped
+
+volumes:
+  orchestrator-data:
