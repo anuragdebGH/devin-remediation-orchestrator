@@ -144,6 +144,18 @@ class TaskStore:
             ).fetchall()
         return [self._to_task(row) for row in rows]
 
+    def failed_without_pr(self, limit: int = 100) -> list[Task]:
+        with self._connection() as connection:
+            rows = connection.execute(
+                """
+                SELECT * FROM remediation_tasks
+                WHERE status = 'failed' AND pr_url IS NULL
+                ORDER BY id LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+        return [self._to_task(row) for row in rows]
+
     def mark_starting(self, task_id: int) -> bool:
         timestamp = now_iso()
         with self._connection() as connection:
@@ -181,8 +193,9 @@ class TaskStore:
                 (status, timestamp, timestamp, task_id),
             )
 
-    def mark_completed(self, task_id: int, pr_url: str) -> None:
+    def mark_completed(self, task_id: int, pr_url: str, created_at: str | None = None) -> None:
         timestamp = now_iso()
+        completed_timestamp = created_at or timestamp
         with self._connection() as connection:
             connection.execute(
                 """
@@ -190,7 +203,7 @@ class TaskStore:
                 SET status = 'completed', pr_url = ?, completed_at = ?, updated_at = ?,
                     last_polled_at = ?, error = NULL WHERE id = ?
                 """,
-                (pr_url, timestamp, timestamp, timestamp, task_id),
+                (pr_url, completed_timestamp, timestamp, timestamp, task_id),
             )
 
     def mark_failed(self, task_id: int, error: str) -> None:
@@ -237,12 +250,14 @@ class TaskStore:
         completed = counts.get("completed", 0)
         failed = counts.get("failed", 0)
         terminal = completed + failed
+        pr_creation_success_rate = (completed / terminal) if terminal else None
         return {
             "total": sum(counts.values()),
             "by_status": counts,
             "active": sum(counts.get(s, 0) for s in ("starting", "running", "action_required")),
             "throughput_completed": completed,
-            "success_rate": (completed / terminal) if terminal else None,
+            "pr_creation_success_rate": pr_creation_success_rate,
+            "success_rate": pr_creation_success_rate,
             "average_time_to_pr_seconds": duration_row["average_seconds"] if duration_row else None,
         }
 

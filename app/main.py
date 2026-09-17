@@ -128,9 +128,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             lines.append(f'remediation_tasks{{status="{status}"}} {counts[status]}')
         lines.extend(
             [
-                "# HELP remediation_success_rate Completed tasks divided by terminal tasks.",
-                "# TYPE remediation_success_rate gauge",
-                f"remediation_success_rate {data['success_rate'] or 0}",
+                "# HELP remediation_pr_creation_success_rate Completed tasks divided by "
+                "terminal tasks.",
+                "# TYPE remediation_pr_creation_success_rate gauge",
+                f"remediation_pr_creation_success_rate {data['pr_creation_success_rate'] or 0}",
                 "# HELP remediation_average_time_to_pr_seconds Mean start-to-PR duration.",
                 "# TYPE remediation_average_time_to_pr_seconds gauge",
                 f"remediation_average_time_to_pr_seconds "
@@ -176,7 +177,7 @@ def dashboard_html(summary: dict[str, object], tasks: list[dict[str, Any]]) -> s
         f"<td>{escape(task['error'] or '')}</td></tr>"
         for task in tasks
     )
-    rate = summary["success_rate"]
+    rate = summary["pr_creation_success_rate"]
     rate_text = "n/a" if rate is None else f"{float(rate) * 100:.0f}%"
     average = summary["average_time_to_pr_seconds"]
     average_text = "n/a" if average is None else f"{float(average):.1f}s"
@@ -209,7 +210,7 @@ GitHub issue → governed Devin session → reviewable pull request · refreshes
 <div class="cards">
 <div class="card">Total tasks<div class="value">{summary['total']}</div></div>
 <div class="card">Active<div class="value">{summary['active']}</div></div>
-<div class="card">Success rate<div class="value">{rate_text}</div></div>
+<div class="card">PR creation success<div class="value">{rate_text}</div></div>
 <div class="card">Average time to PR<div class="value">{average_text}</div></div>
 </div>
 <table><thead><tr><th>ID</th><th>Issue</th><th>Status</th><th>Title</th><th>Devin</th><th>Output</th><th>Error</th></tr></thead>

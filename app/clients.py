@@ -22,6 +22,10 @@ class DevinGateway(Protocol):
 class GitHubGateway(Protocol):
     async def comment(self, repository: str, issue_number: int, body: str) -> None: ...
 
+    async def find_pull_request(
+        self, repository: str, branch: str
+    ) -> tuple[str, str | None] | None: ...
+
 
 class DevinClient:
     def __init__(self, settings: Settings) -> None:
@@ -83,6 +87,31 @@ class GitHubClient:
         )
         response.raise_for_status()
 
+    async def find_pull_request(
+        self, repository: str, branch: str
+    ) -> tuple[str, str | None] | None:
+        owner, repo = repository.split("/", 1)
+        head = f"{owner}:{branch}"
+        response = await self.client.get(
+            f"/repos/{repository}/pulls",
+            params={
+                "state": "all",
+                "head": head,
+                "sort": "updated",
+                "direction": "desc",
+                "per_page": 1,
+            },
+        )
+        response.raise_for_status()
+        pulls = response.json()
+        if pulls and isinstance(pulls, list) and len(pulls) > 0:
+            pr = pulls[0]
+            pr_url = pr.get("html_url") or pr.get("url")
+            created_at = pr.get("created_at")
+            if pr_url:
+                return (pr_url, created_at)
+        return None
+
     async def close(self) -> None:
         await self.client.aclose()
 
@@ -142,6 +171,7 @@ class MockDevinClient:
 class MockGitHubClient:
     def __init__(self) -> None:
         self.comments: list[dict[str, Any]] = []
+        self.pull_requests: dict[str, tuple[str, str | None]] = {}
 
     async def comment(self, repository: str, issue_number: int, body: str) -> None:
         self.comments.append(
@@ -153,6 +183,12 @@ class MockGitHubClient:
             issue_number,
             re.sub(r"\s+", " ", body)[:240],
         )
+
+    async def find_pull_request(
+        self, repository: str, branch: str
+    ) -> tuple[str, str | None] | None:
+        key = f"{repository}:{branch}"
+        return self.pull_requests.get(key)
 
     async def close(self) -> None:
         return None
@@ -176,16 +212,30 @@ def structured_output_schema() -> dict[str, Any]:
 
 
 def _snapshot(payload: dict[str, Any]) -> SessionSnapshot:
-    pull_requests = tuple(
-        item["pr_url"]
-        for item in payload.get("pull_requests", [])
-        if isinstance(item, dict) and item.get("pr_url")
-    )
+    pull_requests: list[str] = []
+    for item in payload.get("pull_requests", []):
+        if isinstance(item, dict):
+            pr_url = (
+                item.get("pr_url")
+                or item.get("html_url")
+                or item.get("url")
+            )
+            if isinstance(pr_url, str):
+                pull_requests.append(pr_url)
+
+    structured_output = payload.get("structured_output")
+    if (
+        structured_output
+        and isinstance(structured_output, dict)
+        and isinstance(structured_output.get("pull_request_url"), str)
+    ):
+        pull_requests.append(structured_output["pull_request_url"])
+
     return SessionSnapshot(
         session_id=payload["session_id"],
         url=payload["url"],
         status=payload["status"],
         status_detail=payload.get("status_detail"),
-        pull_requests=pull_requests,
-        structured_output=payload.get("structured_output"),
+        pull_requests=tuple(dict.fromkeys(pull_requests)),
+        structured_output=structured_output,
     )

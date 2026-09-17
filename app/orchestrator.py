@@ -29,6 +29,7 @@ class Orchestrator:
         self.github = github
         self._stop = asyncio.Event()
         self._runner: asyncio.Task[None] | None = None
+        self._historical_reconciliation_complete = False
 
     def start(self) -> None:
         self._runner = asyncio.create_task(self.run(), name="remediation-worker")
@@ -67,6 +68,11 @@ class Orchestrator:
             if task.devin_session_id:
                 await self._poll_task(task)
 
+        if not self._historical_reconciliation_complete:
+            for task in self.store.failed_without_pr(limit=100):
+                await self._recover_historical_task(task)
+            self._historical_reconciliation_complete = True
+
     async def _start_task(self, task: Task) -> None:
         if not self.store.mark_starting(task.id):
             return
@@ -95,8 +101,7 @@ class Orchestrator:
     async def _poll_task(self, task: Task) -> None:
         try:
             snapshot = await self.devin.get_session(task.devin_session_id or "")
-            state = classify(snapshot)
-            if state == "completed":
+            if snapshot.pull_requests:
                 pr_url = snapshot.pull_requests[0]
                 self.store.mark_completed(task.id, pr_url)
                 await self._safe_comment(
@@ -107,9 +112,11 @@ class Orchestrator:
                     "A human reviewer must validate scope, tests, and security before merge.",
                 )
                 logger.info("task_completed task_id=%s pr_url=%s", task.id, pr_url)
-            elif state == "failed":
+                return
+            state = classify(snapshot)
+            if state == "failed":
                 detail = snapshot.status_detail or snapshot.status
-                await self._fail(task, f"Devin session ended without a pull request: {detail}")
+                await self._fail_with_github_check(task, detail)
             else:
                 self.store.mark_polled(task.id, state)
         except (httpx.HTTPError, KeyError, ValueError) as error:
@@ -125,6 +132,37 @@ class Orchestrator:
             f"Retry with `POST /api/tasks/{task.id}/retry` after resolving the cause.",
         )
         logger.error("task_failed task_id=%s reason=%s", task.id, reason)
+
+    async def _fail_with_github_check(self, task: Task, devin_detail: str) -> None:
+        branch = f"devin/issue-{task.issue_number}"
+        result = await self.github.find_pull_request(task.repository, branch)
+        if result:
+            pr_url, created_at = result
+            self.store.mark_completed(task.id, pr_url, created_at)
+            await self._safe_comment(
+                task.repository,
+                task.issue_number,
+                "✅ **Devin remediation completed**\n\n"
+                f"Pull request: {pr_url}\n\n"
+                "A human reviewer must validate scope, tests, and security before merge.",
+            )
+            logger.info(
+                "task_recovered_from_github task_id=%s pr_url=%s", task.id, pr_url
+            )
+        else:
+            await self._fail(
+                task, f"Devin session ended without a pull request: {devin_detail}"
+            )
+
+    async def _recover_historical_task(self, task: Task) -> None:
+        branch = f"devin/issue-{task.issue_number}"
+        result = await self.github.find_pull_request(task.repository, branch)
+        if result:
+            pr_url, created_at = result
+            self.store.mark_completed(task.id, pr_url, created_at)
+            logger.info(
+                "historical_task_recovered task_id=%s pr_url=%s", task.id, pr_url
+            )
 
     async def _safe_comment(self, repository: str, issue_number: int, body: str) -> None:
         try:
