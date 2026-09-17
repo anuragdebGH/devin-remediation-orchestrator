@@ -93,4 +93,4 @@ remediation_average_time_to_pr_seconds 1693.5979954898357
 | Start-to-PR duration (Task 1) | 48m 55s |
 | Start-to-PR duration (Task 2) | 7m 32s |
 | ACUs consumed | Not captured |
-| Loom URL (under five minutes) | _pending_ |
+| Loom URL (under five minutes) | https://www.loom.com/share/7ee1f0d4e7aa449aa9a6880ff024fab5 |
